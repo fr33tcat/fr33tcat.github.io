@@ -1,0 +1,227 @@
+
+# 靶机描述
+
+困难
+
+# 渗透过程
+
+## 初始侦察
+
+### 端口扫描
+
+**TCP**
+
+22，80 端口开放。
+
+![[Pasted image 20250809155030.png]]
+
+
+
+**UDP**
+
+常见前50udp端口，未发现有价值信息。
+
+![[Pasted image 20250809155238.png]]
+
+----
+### 详细信息扫描
+
+两个 TCP 端口，突破口很可能在80 web 上。
+
+![[Pasted image 20250809155144.png]]
+
+## 80 Web渗透
+
+![[Pasted image 20250809160316.png]]
+
+
+### Nikto 扫描
+
+![[Pasted image 20250809160242.png]]
+
+### 目录扫描
+
+根据目录扫描结构，该web可能采用 wordpress 框架
+
+![[Pasted image 20250809222014.png]]
+**Gobuster 扫描**
+![[Pasted image 20250809161512.png]]
+
+**Dirsearch 扫描**
+
+![[Pasted image 20250809161538.png]]
+
+**Dirb 扫描**
+
+![[Pasted image 20250809161632.png]]
+
+/image.hpp 即为主界面那张图片
+
+/dev 
+
+![[Pasted image 20250809161338.png]]
+
+/secert.txt 提示对发现的每一个 php 界面，使用fuzz
+
+/location.txt无法访问
+
+![[Pasted image 20250809163241.png]]
+
+5.2.2
+
+
+PHP FUZZ 参数挖掘
+
+大多数 回显136字符 使用筛选器 排除后，发现 `file` 参数
+
+![[Pasted image 20250809231744.png]]
+
+尝试访问 显示使用 你在挖掘错误文件
+
+![[Pasted image 20250809232120.png]]
+
+这时想到在 secert.txt  提示下一步时，让访问 location.txt 却访问不到，现在在这里试试
+
+![[Pasted image 20250809232142.png]]
+
+真的访问到了！！！ 提示在另一个php界面，使用 `secrettier360` 作为参数，另一个界面就是刚才 fuzz 不到的 `image.php`
+
+![[Pasted image 20250809232426.png]]
+
+提示我们找到了正确的参数
+
+![[Pasted image 20250809232507.png]]
+
+使用参数成功读取到 `/etc/passwd` 文件，可以执行任意文件读取
+
+我又尝试访问/wordpress/wp-config.php 配置文件，应该是权限被限制了，访问失败
+
+在 /etc/passwd 我看到一句话 在/home/saket 中找 password.txt
+
+![[Pasted image 20250809232952.png]]
+
+我尝试进行读取，拿到一串字符 `follow_the_ippsec` 猜测可能是密码
+
+![[Pasted image 20250809233118.png]]
+
+进行 ssh 登录，失败
+
+尝试 wordpress 后台登录，失败
+
+？？？都失败 ？？？，难道不是saket的密码？
+
+换 victor 试试，ssh登录失败
+
+但 wordpress 后台登录成功
+
+![[Pasted image 20250809235426.png]]
+
+接下来看怎么从后台拿到一个shell
+
+### Wordpress  利用
+
+![[Pasted image 20250810013226.png]]
+
+查看已安装插件，仅有两个，无法利用
+
+![[Pasted image 20250810013303.png]]
+
+**media, plugins, themes** 均具有上传对应文件功能，但我尝试上传，发现都没有创建文件夹写入权限
+
+
+![[Pasted image 20250810013607.png]]
+
+
+![[Pasted image 20250810013157.png]]
+
+发现 插件、主题 编辑器，并且有php  这写入一句话 不就可以建立shell了？
+ 
+![[Pasted image 20250810013738.png]]
+
+但是，我保存更新键呢？？？ 没有保存咋整？
+
+这里我懵了，无法上传文件，无法编辑文件，插件不可利用，漏洞也没搜到啥，咋整？悄悄去看了红笔这一步，原来不是所有的文件都不可写，个别可以写入，更新，需要翻找
+
+........ 学到了。下次一定一个一个翻
+
+呦，翻了三个主题文件，发现一个serect.php
+
+![[Pasted image 20250810014503.png]]
+
+![[Pasted image 20250810014526.png]]
+
+左下角终于变了，这个php文件内容可写，我们只需要写入反弹shell代码，应用激活这个主题，就可以回连，理论上是这样的，尝试一下
+
+
+激活并发布这个主题后，反弹shell并没有回来连，那可能就是主题应用时，secert.php并没有被执行
+
+因为 wordpress 是开源的，上网搜索下它主题文件一般保存在哪里
+
+![[Pasted image 20250810021050.png]]
+
+成功访问到，并且回连成功
+
+![[Pasted image 20250810021344.png]]
+
+
+
+![[Pasted image 20250810021416.png]]
+
+查看wordpress wp-config配置文件，发现wordpress 数据库密码 yourpasswordhere
+
+![[Pasted image 20250810021743.png]]
+
+**USER FLAG**
+
+![[Pasted image 20250810023617.png]]
+
+
+### www-date 账户信息收集
+
+可写文件，未发现敏感信息
+
+![[Pasted image 20250810154544.png]]
+
+wordpress 数据库 未发现可利用信息
+
+计时任务，无可利用点
+
+![[Pasted image 20250810154744.png]]
+
+SUID 权限文件枚举
+
+![[Pasted image 20250810155059.png]]
+
+
+ sudo 可执行命令
+![[Pasted image 20250810155148.png]]
+
+可以无密码以 root 执行 /home/saket/enc
+
+![[Pasted image 20250810155543.png]]
+
+但无法看到 enc 内容，且不可写，
+尝试执行，提示输入密码，拿之前那个密码做下尝试，没啥效果
+
+![[Pasted image 20250810160034.png]]
+
+
+![[Pasted image 20250810160809.png]]
+
+![[Pasted image 20250810163738.png]]
+
+最后一个 45010.c  需要条件最少 版本也符合 做下尝试
+
+下载 上传 编译 执行
+
+![[Pasted image 20250810164202.png]]
+
+提权成功，成功拿到 root 权限
+
+![[Pasted image 20250810164244.png]]
+
+
+
+
+# 总结
+
